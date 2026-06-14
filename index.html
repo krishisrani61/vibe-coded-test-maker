@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ExamForge Test Maker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Browser-only test builder</p>
+      <h1>ExamForge</h1>
+    </div>
+    <nav class="header-actions">
+      <button id="newTestBtn" class="ghost">New</button>
+      <label class="button ghost" for="importTestInput">Open .testmaker</label>
+      <input id="importTestInput" type="file" accept=".testmaker,.json,application/json" hidden />
+      <button id="saveTestBtn">Save .testmaker</button>
+      <button id="exportStudentBtn" class="primary">Export Student PDF</button>
+      <button id="exportTeacherBtn">Teacher PDF</button>
+      <button id="exportKeyBtn">Answer Key</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Test Setup</h2>
+        <label>Title<input id="testTitle" placeholder="Unit 5 Exam" /></label>
+        <label>Course<input id="courseName" placeholder="Global History" /></label>
+        <label>Teacher<input id="teacherName" placeholder="Teacher name" /></label>
+        <label>Date<input id="testDate" type="date" /></label>
+        <label>Header text<input id="headerText" placeholder="Appears on each generated page" /></label>
+        <label>Footer text<input id="footerText" placeholder="Optional footer" /></label>
+        <div class="split-row">
+          <label><input id="includePageNumbers" type="checkbox" checked /> Page numbers</label>
+          <label><input id="showPoints" type="checkbox" checked /> Points</label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Cover PDF</h2>
+        <p class="muted">One PDF, multiple pages allowed. It appears before the generated test.</p>
+        <input id="coverPdfInput" type="file" accept="application/pdf" />
+        <div id="coverStatus" class="status-pill">No cover selected</div>
+      </section>
+
+      <section class="panel">
+        <h2>Add Content</h2>
+        <button id="addMcqBtn" class="wide">+ MCQ</button>
+        <button id="addSaqBtn" class="wide">+ SAQ</button>
+        <button id="addDbqBtn" class="wide">+ DBQ</button>
+        <button id="addPassageBtn" class="wide ghost">+ Passage / Document</button>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="tabs">
+        <button class="tab active" data-tab="questions">Questions</button>
+        <button class="tab" data-tab="passages">Passages & Documents</button>
+        <button class="tab" data-tab="preview">Preview</button>
+      </div>
+
+      <section id="questionsTab" class="tab-page active">
+        <div class="section-head">
+          <div>
+            <h2>Question Builder</h2>
+            <p class="muted">Drag questions to reorder. Link any question to reusable passages/documents.</p>
+          </div>
+          <div id="questionCount" class="count-badge">0 questions</div>
+        </div>
+        <div id="questionList" class="card-list"></div>
+      </section>
+
+      <section id="passagesTab" class="tab-page">
+        <div class="section-head">
+          <div>
+            <h2>Passage / Document Library</h2>
+            <p class="muted">Reusable text, image, table, and PDF references for MCQs, SAQs, and DBQs.</p>
+          </div>
+          <button id="addPassageTopBtn">+ Add Passage</button>
+        </div>
+        <div id="passageList" class="card-list"></div>
+      </section>
+
+      <section id="previewTab" class="tab-page">
+        <div class="section-head">
+          <div>
+            <h2>Live Preview</h2>
+            <p class="muted">Approximate layout. PDF export uses print-oriented formatting.</p>
+          </div>
+          <select id="previewMode">
+            <option value="student">Student Version</option>
+            <option value="teacher">Teacher Version</option>
+            <option value="key">Answer Key</option>
+          </select>
+        </div>
+        <article id="previewPane" class="preview-paper"></article>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="passageDialog" class="modal">
+    <form method="dialog" id="passageForm">
+      <h2 id="passageModalTitle">Add Passage</h2>
+      <input id="passageId" type="hidden" />
+      <label>Name<input id="passageName" required placeholder="Document A / Reading 1" /></label>
+      <label>Type
+        <select id="passageType">
+          <option value="text">Text</option>
+          <option value="image">Image</option>
+          <option value="table">Table</option>
+          <option value="pdf">PDF</option>
+        </select>
+      </label>
+      <label id="passageTextWrap">Content<textarea id="passageText" rows="8" placeholder="Paste passage text, table text, or notes here"></textarea></label>
+      <label id="passageFileWrap">File<input id="passageFile" type="file" accept="image/*,application/pdf" /></label>
+      <menu>
+        <button value="cancel" class="ghost">Cancel</button>
+        <button id="savePassageModalBtn" value="default" class="primary">Save Passage</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">
+      <h3>Nothing here yet</h3>
+      <p>Use the buttons on the left to start building your test.</p>
+    </div>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
