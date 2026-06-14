@@ -54,3 +54,8 @@ This is a strong starter structure, not a final commercial app. PDF export works
 - Randomize choices
 - Theme selector
 - Validation warnings before export
+
+
+## DBQ attachment embedding
+
+Uploaded PNG/JPEG images and PDF documents linked to a question are now drawn directly inside the generated Student and Teacher PDFs. Multi-page DBQ PDFs are scaled into the booklet one page at a time. Unsupported attachment types fall back to a warning line in the export.

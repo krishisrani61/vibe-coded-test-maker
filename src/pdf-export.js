@@ -1,8 +1,9 @@
-import { escapeHtml, fileDataUrlToBytes, getChoiceLetter, slugify } from "./utils.js";
-import { QUESTION_TYPES } from "./schema.js";
+import { fileDataUrlToBytes, getChoiceLetter, slugify } from "./utils.js";
+import { PASSAGE_TYPES, QUESTION_TYPES } from "./schema.js";
 
 const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
 const PAGE = { width: 612, height: 792, margin: 54 };
+const ATTACHMENT = { maxWidth: PAGE.width - PAGE.margin * 2, maxHeight: 560, gap: 10 };
 
 export async function exportPdf(test, mode = "student") {
   const pdf = await PDFDocument.create();
@@ -13,13 +14,23 @@ export async function exportPdf(test, mode = "student") {
 
   const font = await pdf.embedFont(StandardFonts.TimesRoman);
   const bold = await pdf.embedFont(StandardFonts.TimesRomanBold);
-  const ctx = { pdf, font, bold, mode, page: null, y: 0, pageNo: 0, test };
+  const ctx = {
+    pdf,
+    font,
+    bold,
+    mode,
+    page: null,
+    y: 0,
+    pageNo: 0,
+    test,
+    embedCache: new Map()
+  };
 
   addPage(ctx);
   drawTitle(ctx);
 
   if (mode === "key") drawAnswerKey(ctx);
-  else drawQuestions(ctx);
+  else await drawQuestions(ctx);
 
   const bytes = await pdf.save();
   const blob = new Blob([bytes], { type: "application/pdf" });
@@ -27,7 +38,9 @@ export async function exportPdf(test, mode = "student") {
   const a = document.createElement("a");
   a.href = url;
   a.download = `${slugify(test.testInfo.title)}-${mode}.pdf`;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -91,30 +104,111 @@ function drawCentered(ctx, text, size, useBold) {
   ctx.y -= size + 8;
 }
 
-function drawQuestions(ctx) {
-  ctx.test.questions.forEach((q, i) => {
+async function drawQuestions(ctx) {
+  for (const [i, q] of ctx.test.questions.entries()) {
     ensureSpace(ctx, 100);
     drawTextBlock(ctx, `${i + 1}. ${q.prompt || q.title || "Question"}${ctx.test.testInfo.showPoints ? ` (${q.points || 0} pts)` : ""}`, { bold: true });
-    drawLinkedPassages(ctx, q);
+    await drawLinkedPassages(ctx, q);
 
     if (q.type === QUESTION_TYPES.MCQ) drawMcq(ctx, q);
     if (q.type === QUESTION_TYPES.SAQ) drawSaq(ctx, q);
     if (q.type === QUESTION_TYPES.DBQ) drawDbq(ctx, q, i);
     ctx.y -= 10;
-  });
+  }
 }
 
-function drawLinkedPassages(ctx, q) {
-  const ids = q.passageIds || q.documentIds || [];
-  ids.forEach(id => {
+async function drawLinkedPassages(ctx, q) {
+  const ids = [...new Set([...(q.passageIds || []), ...(q.documentIds || [])])];
+  for (const id of ids) {
     const p = ctx.test.passages.find(item => item.id === id);
-    if (!p) return;
+    if (!p) continue;
+
     ensureSpace(ctx, 70);
     drawTextBlock(ctx, p.name, { bold: true, size: 10 });
-    if (p.content) drawTextBlock(ctx, p.content, { size: 9, x: PAGE.margin + 12, maxWidth: PAGE.width - PAGE.margin * 2 - 12 });
-    else drawTextBlock(ctx, `[${p.type.toUpperCase()} attachment: ${p.file?.name || "attached file"}]`, { size: 9, x: PAGE.margin + 12 });
+
+    if (p.type === PASSAGE_TYPES.TEXT || p.type === PASSAGE_TYPES.TABLE) {
+      drawTextBlock(ctx, p.content, { size: 9, x: PAGE.margin + 12, maxWidth: PAGE.width - PAGE.margin * 2 - 12 });
+      ctx.y -= 4;
+      continue;
+    }
+
+    if (p.file?.dataUrl) {
+      await drawEmbeddedAttachment(ctx, p);
+    } else {
+      drawTextBlock(ctx, `[${String(p.type).toUpperCase()} attachment missing: ${p.file?.name || "no file selected"}]`, { size: 9, x: PAGE.margin + 12 });
+    }
     ctx.y -= 4;
-  });
+  }
+}
+
+async function drawEmbeddedAttachment(ctx, passage) {
+  const type = passage.file?.type || "";
+  const name = passage.file?.name || "attached file";
+
+  try {
+    if (passage.type === PASSAGE_TYPES.IMAGE || type.startsWith("image/")) {
+      await drawImageAttachment(ctx, passage);
+      return;
+    }
+
+    if (passage.type === PASSAGE_TYPES.PDF || type === "application/pdf" || name.toLowerCase().endsWith(".pdf")) {
+      await drawPdfAttachment(ctx, passage);
+      return;
+    }
+
+    drawTextBlock(ctx, `[Unsupported attachment type: ${name}]`, { size: 9, x: PAGE.margin + 12 });
+  } catch (error) {
+    console.warn(`Could not embed attachment ${name}`, error);
+    drawTextBlock(ctx, `[Attachment could not be embedded: ${name}]`, { size: 9, x: PAGE.margin + 12 });
+  }
+}
+
+async function drawImageAttachment(ctx, passage) {
+  const cacheKey = `image:${passage.id}:${passage.file.name}`;
+  let embedded = ctx.embedCache.get(cacheKey);
+
+  if (!embedded) {
+    const bytes = fileDataUrlToBytes(passage.file.dataUrl);
+    const mime = passage.file.type || "";
+    const lower = passage.file.name.toLowerCase();
+
+    if (mime.includes("png") || lower.endsWith(".png")) embedded = await ctx.pdf.embedPng(bytes);
+    else if (mime.includes("jpeg") || mime.includes("jpg") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) embedded = await ctx.pdf.embedJpg(bytes);
+    else throw new Error("Only PNG and JPEG images can be embedded by pdf-lib.");
+
+    ctx.embedCache.set(cacheKey, embedded);
+  }
+
+  const scaled = scaleToFit(embedded.width, embedded.height, ATTACHMENT.maxWidth, ATTACHMENT.maxHeight);
+  ensureSpace(ctx, scaled.height + 26);
+  ctx.page.drawText(passage.file.name, { x: PAGE.margin + 12, y: ctx.y, size: 8, font: ctx.font, color: rgb(.35,.35,.35) });
+  ctx.y -= 12;
+  ctx.page.drawImage(embedded, { x: PAGE.margin + 12, y: ctx.y - scaled.height, width: scaled.width, height: scaled.height });
+  ctx.y -= scaled.height + ATTACHMENT.gap;
+}
+
+async function drawPdfAttachment(ctx, passage) {
+  const bytes = fileDataUrlToBytes(passage.file.dataUrl);
+  const src = await PDFDocument.load(bytes);
+  const indices = src.getPageIndices();
+
+  for (const [pageIndexIndex, pageIndex] of indices.entries()) {
+    const [embeddedPage] = await ctx.pdf.embedPdf(bytes, [pageIndex]);
+    const scaled = scaleToFit(embeddedPage.width, embeddedPage.height, ATTACHMENT.maxWidth, ATTACHMENT.maxHeight);
+
+    ensureSpace(ctx, scaled.height + 34);
+    const label = `${passage.file.name} - page ${pageIndexIndex + 1} of ${indices.length}`;
+    ctx.page.drawText(label, { x: PAGE.margin + 12, y: ctx.y, size: 8, font: ctx.font, color: rgb(.35,.35,.35) });
+    ctx.y -= 12;
+    ctx.page.drawRectangle({ x: PAGE.margin + 12, y: ctx.y - scaled.height, width: scaled.width, height: scaled.height, borderWidth: .5, borderColor: rgb(.72,.72,.72) });
+    ctx.page.drawPage(embeddedPage, { x: PAGE.margin + 12, y: ctx.y - scaled.height, width: scaled.width, height: scaled.height });
+    ctx.y -= scaled.height + ATTACHMENT.gap;
+  }
+}
+
+function scaleToFit(width, height, maxWidth, maxHeight) {
+  const factor = Math.min(maxWidth / width, maxHeight / height, 1);
+  return { width: width * factor, height: height * factor };
 }
 
 function drawMcq(ctx, q) {
